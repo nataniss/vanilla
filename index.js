@@ -6,10 +6,12 @@ const qrcode = require('qrcode');
 const path = require('path');
 const fsp = require('fs/promises');
 
-let BOT_CONFIG = {
+let BOT_CONFIG_DEFAULT = {
     "prefix": ">",
     "plugin_path": "./plugins/"
 }
+
+let BOT_CONFIG = BOT_CONFIG_DEFAULT;
 
 let plugins = {
     "installed": [
@@ -20,6 +22,27 @@ let plugins = {
 let commands = {
 
 };
+
+async function loadJson(filepath, fallback = {}) {
+    try {
+    const data = await fsp.readFile(filepath, 'utf-8')
+    return JSON.parse(data);
+    } catch (error) {
+        if (error.code === "ENOENT") {
+            try {
+                const json = JSON.stringify(fallback, null, 2);
+                await fsp.writeFile(filepath, json, {encoding: 'utf-8', flag: 'w'});
+                return fallback;
+            } catch (writeError) {
+                console.error(`Failed to write file ${filepath}: ${writeError}`)
+                throw writeError;
+            }
+        } else {
+            console.error("Error processing JSON:", error)
+            throw error;
+        }
+    }
+}
 
 async function loadPluginMeta() {
 
@@ -84,6 +107,8 @@ async function loadPluginMeta() {
 
 async function start() {
 
+    BOT_CONFIG = await loadJson("./bot_configs.json", BOT_CONFIG_DEFAULT);
+
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
     const { version } = await fetchLatestBaileysVersion();
@@ -121,11 +146,8 @@ async function start() {
     });
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
-        console.log("\nMessage detected!\n")
-
         global.sock = sock;
         const m = messages[0];
-        console.log(m)
         global.lastMsg = { from: m.key.remoteJid, msg: m }
 
         const from = m.key?.remoteJid || m.key?.participant;
