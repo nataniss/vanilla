@@ -45,24 +45,28 @@ async function start() {
     });
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
+        console.log("\nMessage detected!\n")
+
         global.sock = sock;
         const m = messages[0];
+        console.log(m)
         global.lastMsg = { from: m.key.remoteJid, msg: m }
 
         const from = m.key?.remoteJid || m.key?.participant;
         const fromAlt = m.key?.participantAlt;
 
         const contactname = m.pushName || undefined;
-        const type = Object.keys(m.message || {});
+        const type = Object.keys(m.message || {})[0];
         const fromMe = m.key.fromMe || false;
-        const text = m.message.conversation
-        || m.message.extendedTextMessage?.text
-        || m.message[type]?.caption
+        const text = m.message?.conversation
+        || m.message?.extendedTextMessage?.text
+        || (m.message && type ? m.message[type]?.caption : undefined)
         || "";
+        const timestamp = m.messageTmestamp?.low || m.messageTimestamp || 0;
 
-        const msg = { key: m.key || {}, message: m.message, text, from, fromAlt, contactname, fromMe, type }
+        const msg = { key: m.key || {}, message: m.message, text, from, fromAlt, contactname, fromMe, type, timestamp }
 
-        console.log(msg)
+        //console.log(msg)
 
         // command execution
         if (!text.startsWith(BOT_CONFIG.prefix)) return;
@@ -72,6 +76,7 @@ async function start() {
         msg.args = args;
 
         if (cmd === "ping") {
+            console.log("\nCommand running!\n")
             await sock.sendMessage(from, { text: "Pong! Command has been detected."}, {quoted: msg });
             return;
         }
