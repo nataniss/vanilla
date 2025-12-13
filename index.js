@@ -4,6 +4,10 @@ const P = require('pino');
 const fs = require('fs');
 const qrcode = require('qrcode');
 
+let BOT_CONFIG = {
+    "prefix": ">"
+}
+
 async function start() {
 
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -40,7 +44,7 @@ async function start() {
         }
     });
 
-    sock.ev.on('messages.upsert', ({ messages }) => {
+    sock.ev.on('messages.upsert', async ({ messages }) => {
         global.sock = sock;
         const m = messages[0];
         global.lastMsg = { from: m.key.remoteJid, msg: m }
@@ -49,16 +53,28 @@ async function start() {
         const fromAlt = m.key?.participantAlt;
 
         const contactname = m.pushName || undefined;
-        const type = Object.keys(m.message);
+        const type = Object.keys(m.message || {});
         const fromMe = m.key.fromMe || false;
         const text = m.message.conversation
         || m.message.extendedTextMessage?.text
         || m.message[type]?.caption
-        || undefined;
+        || "";
 
         const msg = { key: m.key || {}, message: m.message, text, from, fromAlt, contactname, fromMe, type }
 
         console.log(msg)
+
+        // command execution
+        if (!text.startsWith(BOT_CONFIG.prefix)) return;
+        
+        const [raw, ...args] = text.slice(BOT_CONFIG.prefix.length).trim().split(" ");
+        const cmd = raw.toLowerCase();
+        msg.args = args;
+
+        if (cmd === "ping") {
+            await sock.sendMessage(from, { text: "Pong! Command has been detected."}, {quoted: msg });
+            return;
+        }
 
 
     });
