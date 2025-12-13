@@ -1,0 +1,27 @@
+{
+  "name": "vanilla",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "vanilla": "node index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nataniss/vanilla.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/nataniss/vanilla/issues"
+  },
+  "homepage": "https://github.com/nataniss/vanilla#readme",
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^7.0.0-rc.9",
+    "baileys": "^7.0.0-rc.9",
+    "qrcode": "^1.5.4"
+  }
+}
