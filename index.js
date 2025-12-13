@@ -3,10 +3,84 @@ const { Boom } = require('@hapi/boom');
 const P = require('pino');
 const fs = require('fs');
 const qrcode = require('qrcode');
+const path = require('path');
+const fsp = require('fs/promises');
 
 let BOT_CONFIG = {
-    "prefix": ">"
+    "prefix": ">",
+    "plugin_path": "./plugins/"
 }
+
+let plugins = {
+    "installed": [
+
+    ]
+};
+
+let commands = {
+
+};
+
+async function loadPluginMeta() {
+
+    let directories = [];
+    commands = {}; 
+
+    try {
+        const entries = await fsp.readdir(BOT_CONFIG.plugin_path, { withFileTypes: true });
+
+        directories = entries
+        .filter(dirent => dirent.isDirectory())
+        .map(dirent => dirent.name);
+    } catch (err) {
+        console.error(`Error reading directory: ${err}`);
+        throw err; 
+    }
+
+    await Promise.all(directories.map(async (plugin) => { 
+        console.log(`Loading plugin metadata for: ${plugin}`);
+        
+        try {
+            const manifestPath = path.join(BOT_CONFIG.plugin_path, plugin, "manifest.json");
+            const data = await fsp.readFile(manifestPath, 'utf8');
+            let content = JSON.parse(data);
+            
+            plugins.installed.push(content.title);
+
+            if (content.commands && Array.isArray(content.commands)) {
+                content.commands.forEach(commandMeta => {
+                    const { file, aliases } = commandMeta;
+                    
+                    if (aliases && Array.isArray(aliases)) {
+                        aliases.forEach(alias => {
+                            const commandName = alias.toLowerCase();
+
+                            if (commands[commandName]) {
+                                console.warn(`Command conflict detected! Alias "${commandName}" from plugin "${content.title}" is already used by plugin "${commands[commandName].plugin}". The existing one will be overwritten.`);
+                            }
+
+                            commands[commandName] = {
+                                file: file,
+                                plugin: content.title
+                            };
+                        });
+                    }
+                });
+            }
+
+            console.log(`Successfully loaded manifest for ${content.title}.`);
+
+        } catch (err) {
+            console.error(`Got an error trying to read or process manifest of ${plugin}: ${err.message}`);
+        }
+    }));
+    
+    console.log("Done loading plugins and commands.");
+    console.log(Object.keys(commands), "commands loaded from the", plugins.installed, "plugins.");
+    console.log(commands);
+}
+
+
 
 async function start() {
 
@@ -19,6 +93,8 @@ async function start() {
         auth: state,
         logger: P({ level: 'silent' }),
     });
+
+    await loadPluginMeta();
 
 
     sock.ev.on("creds.update", saveCreds);
@@ -66,7 +142,7 @@ async function start() {
 
         const msg = { key: m.key || {}, message: m.message, text, from, fromAlt, contactname, fromMe, type, timestamp }
 
-        //console.log(msg)
+
 
         // command execution
         if (!text.startsWith(BOT_CONFIG.prefix)) return;
@@ -75,11 +151,26 @@ async function start() {
         const cmd = raw.toLowerCase();
         msg.args = args;
 
-        if (cmd === "ping") {
-            console.log("\nCommand running!\n")
+        if (cmd === "reload") {
+            await sock.sendMessage(from, { text: "Reloading plugins and commands."}, {quoted: msg });
+            await loadPluginMeta();
+            await sock.sendMessage(from, { text: `Done! ${Object.keys(commands).length} commands loaded from ${plugins.installed.length} plugins.`}, {quoted: msg });
+            return;
+        } else if (cmd === "ping") {
             await sock.sendMessage(from, { text: "Pong! Command has been detected."}, {quoted: msg });
             return;
+        } else {
+            let commandFound = Object.keys(commands).find(key => key === cmd);
+
+            if (commandFound) {
+                // Command exists
+                return;
+            } else {
+                await sock.sendMessage(from, { text: `Command does not exist.`}, {quoted: msg });
+                return;
+            }
         }
+
 
 
     });
