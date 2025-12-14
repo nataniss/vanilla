@@ -8,7 +8,8 @@ const fsp = require('fs/promises');
 
 let BOT_CONFIG_DEFAULT = {
     "prefix": ">",
-    "plugin_path": "./plugins/"
+    "plugin_path": "./plugins/",
+    "base_path": "./base/"
 }
 
 let BOT_CONFIG = BOT_CONFIG_DEFAULT;
@@ -202,16 +203,44 @@ async function start() {
 
                 if (commandMeta) {
 
-                const fullPath = path.join(
+                const fullPath = path.resolve(
                     BOT_CONFIG.plugin_path,
                     commandMeta.plugin_folder,
                     commandMeta.file
                 );
 
                 console.log(`Attempting to run command from: ${fullPath}`);
+                try {
+                    const pluginModule = require(fullPath);
+                    if (pluginModule.run) {
+                        await safeRun(() => pluginModule.run(sock, from, msg), sock, from, m, cmd);
+                    } else {
+                        console.warn(`Plugin at ${fullPath} is missing a 'run' function.`);
+                    }
+                } catch (err) {
+                    console.error(`Failed to load or execute plugin at ${fullPath}:`, err);
+                    await sock.sendMessage(from, { text: `Error loading plugin command \`${cmd}\`: \`${err.message}\`` });
+                }
                 return;
             } else {
-                await sock.sendMessage(from, { text: `Command does not exist.`}, {quoted: msg });
+
+
+                const fullPath = path.resolve(
+                    BOT_CONFIG.base_path,
+                    "command_not_found.js"
+                );
+
+                 try {
+                    const pluginModule = require(fullPath);
+                    if (pluginModule.run) {
+                        await safeRun(() => pluginModule.run(sock, from, msg), sock, from, m, cmd);
+                    } else {
+                        console.warn(`Plugin at ${fullPath} is missing a 'run' function.`);
+                    }
+                } catch (err) {
+                    console.error(`Failed to load or execute plugin at ${fullPath}:`, err);
+                    await sock.sendMessage(from, { text: `Error loading plugin command \`${cmd}\`: \`${err.message}\`` });
+                }
                 return;
             }
         }
