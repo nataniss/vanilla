@@ -23,6 +23,18 @@ let commands = {
 
 };
 
+// safe run, in case something goes wrong
+async function safeRun(fn, sock, from, msg, cmdName = "command") {
+    try {
+        await fn();
+    } catch (err) {
+        console.error(`Error executing command ${cmdName}:`, err);
+        try {
+            await sock.sendMessage(from, {text: `Error executing command \`\`\`${cmdName}\`\`\`:\n\`\`\`${err.message || err}\`\`\``})
+        } catch (_) {}
+    }
+}
+
 async function loadJson(filepath, fallback = {}) {
     try {
     const data = await fsp.readFile(filepath, 'utf-8')
@@ -84,7 +96,8 @@ async function loadPluginMeta() {
 
                             commands[commandName] = {
                                 file: file,
-                                plugin: content.title
+                                plugin: content.title,
+                                plugin_folder: plugin
                             };
                         });
                     }
@@ -99,7 +112,10 @@ async function loadPluginMeta() {
     }));
     
     console.log("Done loading plugins and commands.");
-    console.log(Object.keys(commands), "commands loaded from the", plugins.installed, "plugins.");
+    pluginsArray = plugins.installed.filter(function(item, pos) {
+        return plugins.installed.indexOf(item) == pos;
+    })
+    console.log(Object.keys(commands), "commands loaded from the", pluginsArray, "plugins.");
     console.log(commands);
 }
 
@@ -182,10 +198,17 @@ async function start() {
             await sock.sendMessage(from, { text: "Pong! Command has been detected."}, {quoted: msg });
             return;
         } else {
-            let commandFound = Object.keys(commands).find(key => key === cmd);
+            const commandMeta = commands[cmd];
 
-            if (commandFound) {
-                // Command exists
+                if (commandMeta) {
+
+                const fullPath = path.join(
+                    BOT_CONFIG.plugin_path,
+                    commandMeta.plugin_folder,
+                    commandMeta.file
+                );
+
+                console.log(`Attempting to run command from: ${fullPath}`);
                 return;
             } else {
                 await sock.sendMessage(from, { text: `Command does not exist.`}, {quoted: msg });

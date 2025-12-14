@@ -1,7 +1,7 @@
-/auth_info_baileys/
+auth_info_baileys/
 
-/node_modules/
+node_modules/
 
-/plugins/
+plugins/
 
-/bot_configs.json
+bot_configs.json
