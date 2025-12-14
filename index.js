@@ -5,6 +5,7 @@ const fs = require('fs');
 const qrcode = require('qrcode');
 const path = require('path');
 const fsp = require('fs/promises');
+const { clear } = require('console');
 
 let BOT_CONFIG_DEFAULT = {
     "prefix": ">",
@@ -98,7 +99,8 @@ async function loadPluginMeta() {
                             commands[commandName] = {
                                 file: file,
                                 plugin: content.title,
-                                plugin_folder: plugin
+                                plugin_folder: plugin,
+                                fullPath: path.resolve(BOT_CONFIG.plugin_path, plugin, file)
                             };
                         });
                     }
@@ -116,8 +118,25 @@ async function loadPluginMeta() {
     pluginsArray = plugins.installed.filter(function(item, pos) {
         return plugins.installed.indexOf(item) == pos;
     })
-    console.log(Object.keys(commands), "commands loaded from the", pluginsArray, "plugins.");
+    console.log(Object.keys(commands), "command(s) loaded from the", pluginsArray, "plugin(s).");
     console.log(commands);
+}
+
+function reloadCommands() {
+    console.log("Reloading command files...");
+    
+    const pathsToClear = Object.values(commands).map(meta => meta.fullPath).filter(p => p);
+
+    let clearedCount = 0;
+    
+    pathsToClear.forEach(fullPath => {
+        if (require.cache[fullPath]) {
+            delete require.cache[fullPath];
+            clearedCount++;
+        }
+    });
+    
+    console.log(`Reloaded ${clearedCount} command file(s).`);
 }
 
 
@@ -192,6 +211,7 @@ async function start() {
 
         if (cmd === "reload") {
             await sock.sendMessage(from, { text: "Reloading plugins and commands."}, {quoted: msg });
+            reloadCommands();
             await loadPluginMeta();
             await sock.sendMessage(from, { text: `Done! ${Object.keys(commands).length} commands loaded from ${plugins.installed.length} plugins.`}, {quoted: msg });
             return;
