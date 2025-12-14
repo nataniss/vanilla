@@ -7,10 +7,14 @@ const path = require('path');
 const fsp = require('fs/promises');
 const { clear } = require('console');
 
+// todo, add ability to switch between bases.
+// todo 2, add command options.
+
 let BOT_CONFIG_DEFAULT = {
     "prefix": ">",
     "plugin_path": "./plugins/",
-    "base_path": "./base/"
+    "base_path": "./base/",
+    "base": "vanilla"
 }
 
 let BOT_CONFIG = BOT_CONFIG_DEFAULT;
@@ -187,7 +191,7 @@ async function start() {
         global.lastMsg = { from: m.key.remoteJid, msg: m }
 
         const from = m.key?.remoteJid || m.key?.participant;
-        const fromAlt = m.key?.participantAlt;
+        const fromAlt = m.key.participantAlt;
 
         const contactname = m.pushName || undefined;
         const type = Object.keys(m.message || {})[0];
@@ -196,18 +200,21 @@ async function start() {
         || m.message?.extendedTextMessage?.text
         || (m.message && type ? m.message[type]?.caption : undefined)
         || "";
-        const timestamp = m.messageTmestamp?.low || m.messageTimestamp || 0;
-
-        const msg = { key: m.key || {}, message: m.message, text, from, fromAlt, contactname, fromMe, type, timestamp }
-
-
+        const timestamp = m.messageTimestamp?.low || m.messageTimestamp || 0;
+        
+        const msg = { key: m.key || {}, message: m.message, text, from, fromAlt, contactname, fromMe, type, timestamp };
+        // build a simpler message
 
         // command execution
+        let [raw, ...args] = text.slice(BOT_CONFIG.prefix.length).trim().split(" ");
+
         if (!text.startsWith(BOT_CONFIG.prefix)) return;
-        
-        const [raw, ...args] = text.slice(BOT_CONFIG.prefix.length).trim().split(" ");
-        const cmd = raw.toLowerCase();
+
+        let cmd = raw.toLowerCase();
         msg.args = args;
+        msg.cmd = cmd;
+
+        const commandMeta = commands[cmd];
 
         if (cmd === "reload") {
             await sock.sendMessage(from, { text: "Reloading plugins and commands."}, {quoted: msg });
@@ -216,12 +223,28 @@ async function start() {
             await sock.sendMessage(from, { text: `Done! ${Object.keys(commands).length} commands loaded from ${plugins.installed.length} plugins.`}, {quoted: msg });
             return;
         } else if (cmd === "ping") {
-            await sock.sendMessage(from, { text: "Pong! Command has been detected."}, {quoted: msg });
-            return;
-        } else {
-            const commandMeta = commands[cmd];
 
-                if (commandMeta) {
+            const fullPath = path.resolve(
+                BOT_CONFIG.base_path,
+                BOT_CONFIG.base,
+                "ping.js"
+            );
+
+            try {
+                const pluginModule = require(fullPath);
+                if (pluginModule.run) {
+                    await safeRun(() => pluginModule.run(sock, from, msg), sock, from, m, cmd);
+                } else {
+                    console.warn(`Plugin at ${fullPath} is missing a 'run' function.`);
+                }
+            } catch (err) {
+                console.error(`Failed to load or execute plugin at ${fullPath}:`, err);
+                await sock.sendMessage(from, { text: `Error loading plugin command \`${cmd}\`: \`${err.message}\`` });
+            }
+            return;
+            
+        } else {
+            if (commandMeta) {
 
                 const fullPath = path.resolve(
                     BOT_CONFIG.plugin_path,
@@ -244,9 +267,9 @@ async function start() {
                 return;
             } else {
 
-
                 const fullPath = path.resolve(
                     BOT_CONFIG.base_path,
+                    BOT_CONFIG.base,
                     "command_not_found.js"
                 );
 
