@@ -5,7 +5,6 @@ const fs = require('fs');
 const qrcode = require('qrcode');
 const path = require('path');
 const fsp = require('fs/promises');
-const { clear } = require('console');
 
 // todo, add ability to switch between bases.
 // todo 2, add command options.
@@ -28,6 +27,43 @@ let plugins = {
 let commands = {
 
 };
+
+async function execute_file(fp, sock, from, msg, m, cmd) {
+            try {
+                const pluginModule = require(fp);
+                if (pluginModule.run) {
+                    await safeRun(() => pluginModule.run(sock, from, msg), sock, from, m, cmd);
+                } else {
+                    console.warn(`Plugin at ${fp} is missing a 'run' function.`);
+                }
+            } catch (err) {
+                console.error(`Failed to load or execute file at ${fp}:`, err);
+                await sock.sendMessage(from, { text: `Error loading plugin command \`${cmd}\`: \`${err.message}\`` });
+            }
+            return;
+}
+
+async function changeBase(fp, newbase) {
+    try {
+        const json = await fsp.readFile(fp, 'utf-8');
+        
+        const data = JSON.parse(json);
+        data.base = newbase;
+
+        const new_data = JSON.stringify(data, null, 2);
+
+        BOT_CONFIG = data;
+
+        await fsp.writeFile(fp, new_data, { encoding: 'utf-8' });
+
+        console.log(`Successfully changed base to ${newbase}.`);
+        return true;
+
+    } catch (err) {
+        console.error("Error changing base:", err.message);
+        throw err;
+    }
+}
 
 // safe run, in case something goes wrong
 async function safeRun(fn, sock, from, msg, cmdName = "command") {
@@ -153,14 +189,13 @@ async function start() {
 
     const { version } = await fetchLatestBaileysVersion();
 
-        const sock = makeWASocket({
+    const sock = makeWASocket({
         version,
         auth: state,
         logger: P({ level: 'silent' }),
     });
 
     await loadPluginMeta();
-
 
     sock.ev.on("creds.update", saveCreds);
 
@@ -183,6 +218,7 @@ async function start() {
         if (qr) {
             console.log(await qrcode.toString(qr, {type:'terminal', small: true}))
         }
+
     });
 
     sock.ev.on('messages.upsert', async ({ messages }) => {
@@ -216,79 +252,61 @@ async function start() {
 
         const commandMeta = commands[cmd];
 
-        if (cmd === "reload") {
-            await sock.sendMessage(from, { text: "Reloading plugins and commands."}, {quoted: msg });
-            reloadCommands();
-            await loadPluginMeta();
-            await sock.sendMessage(from, { text: `Done! ${Object.keys(commands).length} commands loaded from ${plugins.installed.length} plugins.`}, {quoted: msg });
-            return;
-        } else if (cmd === "ping") {
-
-            const fullPath = path.resolve(
-                BOT_CONFIG.base_path,
-                BOT_CONFIG.base,
-                "ping.js"
-            );
-
-            try {
-                const pluginModule = require(fullPath);
-                if (pluginModule.run) {
-                    await safeRun(() => pluginModule.run(sock, from, msg), sock, from, m, cmd);
-                } else {
-                    console.warn(`Plugin at ${fullPath} is missing a 'run' function.`);
-                }
-            } catch (err) {
-                console.error(`Failed to load or execute plugin at ${fullPath}:`, err);
-                await sock.sendMessage(from, { text: `Error loading plugin command \`${cmd}\`: \`${err.message}\`` });
-            }
-            return;
-            
-        } else {
-            if (commandMeta) {
-
-                const fullPath = path.resolve(
-                    BOT_CONFIG.plugin_path,
-                    commandMeta.plugin_folder,
-                    commandMeta.file
-                );
-
-                console.log(`Attempting to run command from: ${fullPath}`);
-                try {
-                    const pluginModule = require(fullPath);
-                    if (pluginModule.run) {
-                        await safeRun(() => pluginModule.run(sock, from, msg), sock, from, m, cmd);
-                    } else {
-                        console.warn(`Plugin at ${fullPath} is missing a 'run' function.`);
-                    }
-                } catch (err) {
-                    console.error(`Failed to load or execute plugin at ${fullPath}:`, err);
-                    await sock.sendMessage(from, { text: `Error loading plugin command \`${cmd}\`: \`${err.message}\`` });
-                }
+        switch (cmd) {
+            case ("reload"): {
+                await sock.sendMessage(from, { text: "Reloading plugins and commands."}, {quoted: msg });
+                reloadCommands();
+                await loadPluginMeta();
+                await sock.sendMessage(from, { text: `Done! ${Object.keys(commands).length} commands loaded from ${plugins.installed.length} plugins.`}, {quoted: msg });
                 return;
-            } else {
-
-                const fullPath = path.resolve(
+            }
+            case ("ping"): {
+                const fp = path.resolve(
                     BOT_CONFIG.base_path,
                     BOT_CONFIG.base,
-                    "command_not_found.js"
+                    "ping.js"
                 );
-
-                 try {
-                    const pluginModule = require(fullPath);
-                    if (pluginModule.run) {
-                        await safeRun(() => pluginModule.run(sock, from, msg), sock, from, m, cmd);
-                    } else {
-                        console.warn(`Plugin at ${fullPath} is missing a 'run' function.`);
-                    }
-                } catch (err) {
-                    console.error(`Failed to load or execute plugin at ${fullPath}:`, err);
-                    await sock.sendMessage(from, { text: `Error loading plugin command \`${cmd}\`: \`${err.message}\`` });
-                }
+                await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
                 return;
             }
+            case ("base"): {
+                if (args.length === 0) {
+                await sock.sendMessage(from, { text: `Current base is ${BOT_CONFIG.base}.`}, {quoted: msg });
+            } else {
+                if (args[0] === "switch") {
+                    await safeRun(() => changeBase("./bot_configs.json", args[1]), sock, from, m, cmd);
+                    await loadPluginMeta(); 
+                    reloadCommands();
+                    await sock.sendMessage(from, { text: `Base switched to *${BOT_CONFIG.base}*. Plugins reloaded.`}, {quoted: msg });
         }
+    }
+    return;
+            }
+            default: {
+                if (commandMeta) {
 
+                    const fp = path.resolve(
+                        BOT_CONFIG.plugin_path,
+                        commandMeta.plugin_folder,
+                        commandMeta.file
+                    );
 
+                    console.log(`Attempting to run command from: ${fp}`);
+                    await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
+                    return;
+                } else {
+
+                    const fp = path.resolve(
+                        BOT_CONFIG.base_path,
+                        BOT_CONFIG.base,
+                        "command_not_found.js"
+                    );
+
+                    await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
+                    return;
+                }
+            }
+        }
 
     });
 }
