@@ -2,6 +2,6 @@ auth_info_baileys/
 
 node_modules/
 
-plugins/
+plugins/*
 
 bot_configs.json

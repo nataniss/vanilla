@@ -278,10 +278,11 @@ async function start() {
                     await loadPluginMeta(); 
                     reloadCommands();
                     await sock.sendMessage(from, { text: `Base switched to *${BOT_CONFIG.base}*. Plugins reloaded.`}, {quoted: msg });
-        }
-    }
-    return;
+                }
             }
+                return;
+            }
+
             default: {
                 if (commandMeta) {
 
@@ -295,13 +296,11 @@ async function start() {
                     await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
                     return;
                 } else {
-
                     const fp = path.resolve(
                         BOT_CONFIG.base_path,
                         BOT_CONFIG.base,
                         "command_not_found.js"
                     );
-
                     await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
                     return;
                 }
