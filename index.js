@@ -1,13 +1,9 @@
 const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const P = require('pino');
-const fs = require('fs');
 const qrcode = require('qrcode');
 const path = require('path');
 const fsp = require('fs/promises');
-
-// todo, add ability to switch between bases.
-// todo 2, add command options.
 
 let BOT_CONFIG_DEFAULT = {
     "prefix": ">",
@@ -28,19 +24,35 @@ let commands = {
 
 };
 
-async function execute_file(fp, sock, from, msg, m, cmd) {
-            try {
-                const pluginModule = require(fp);
+async function execute_file(fp, sock, from, msg, m, cmd, func, printwarn) {
+    try {
+        const pluginModule = require(fp);
+        switch (func) {
+            case (1):
+                if (pluginModule.post) {
+                    await safeRun(() => pluginModule.post(sock, from, msg), sock, from, m, cmd);
+                } else {
+                    if (printwarn === true || printwarn === undefined) {
+                        console.warn(`Plugin at ${fp} is missing a 'post' function.`);
+                    }
+                }
+                break;
+
+            default:
                 if (pluginModule.run) {
                     await safeRun(() => pluginModule.run(sock, from, msg), sock, from, m, cmd);
                 } else {
-                    console.warn(`Plugin at ${fp} is missing a 'run' function.`);
+                    if (printwarn === true || printwarn === undefined) {
+                        console.warn(`Plugin at ${fp} is missing a 'run' function.`);
+                    }
                 }
-            } catch (err) {
-                console.error(`Failed to load or execute file at ${fp}:`, err);
-                await sock.sendMessage(from, { text: `Error loading plugin command \`${cmd}\`: \`${err.message}\`` });
-            }
-            return;
+                break;
+        }
+    } catch (err) {
+        console.error(`Failed to load or execute file at ${fp}:`, err);
+        await sock.sendMessage(from, { text: `Error executing command \`\`\`${cmd}\`\`\`.\n\n\`\`\`${err.message}\`\`\``}, {quoted: msg });
+    }
+    return;
 }
 
 async function changeBase(fp, newbase) {
@@ -49,16 +61,13 @@ async function changeBase(fp, newbase) {
         
         const data = JSON.parse(json);
         data.base = newbase;
-
         const new_data = JSON.stringify(data, null, 2);
 
         BOT_CONFIG = data;
-
         await fsp.writeFile(fp, new_data, { encoding: 'utf-8' });
 
         console.log(`Successfully changed base to ${newbase}.`);
         return true;
-
     } catch (err) {
         console.error("Error changing base:", err.message);
         throw err;
@@ -79,8 +88,8 @@ async function safeRun(fn, sock, from, msg, cmdName = "command") {
 
 async function loadJson(filepath, fallback = {}) {
     try {
-    const data = await fsp.readFile(filepath, 'utf-8')
-    return JSON.parse(data);
+        const data = await fsp.readFile(filepath, 'utf-8')
+        return JSON.parse(data);
     } catch (error) {
         if (error.code === "ENOENT") {
             try {
@@ -105,7 +114,6 @@ async function loadPluginMeta() {
 
     try {
         const entries = await fsp.readdir(BOT_CONFIG.plugin_path, { withFileTypes: true });
-
         directories = entries
         .filter(dirent => dirent.isDirectory())
         .map(dirent => dirent.name);
@@ -253,11 +261,19 @@ async function start() {
         const commandMeta = commands[cmd];
 
         switch (cmd) {
+            // TODO: I should really remove these hardcoded cases...
             case ("reload"): {
-                await sock.sendMessage(from, { text: "Reloading plugins and commands."}, {quoted: msg });
+                const fp = path.resolve(
+                    BOT_CONFIG.base_path,
+                    BOT_CONFIG.base,
+                    "reload.js"
+                );
+                await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
+
                 reloadCommands();
                 await loadPluginMeta();
-                await sock.sendMessage(from, { text: `Done! ${Object.keys(commands).length} commands loaded from ${plugins.installed.length} plugins.`}, {quoted: msg });
+
+                await safeRun(() => execute_file(fp, sock, from, msg, m, cmd, 1), sock, from, m, cmd);
                 return;
             }
             case ("ping"): {
@@ -294,6 +310,7 @@ async function start() {
 
                     console.log(`Attempting to run command from: ${fp}`);
                     await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
+                    await safeRun(() => execute_file(fp, sock, from, msg, m, cmd, 1, false), sock, from, m, cmd); // run post, if not existent, fail silently
                     return;
                 } else {
                     const fp = path.resolve(
