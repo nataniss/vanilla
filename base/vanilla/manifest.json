@@ -1,0 +1,16 @@
+{
+	"actions": [
+		{
+			"file": "command_not_found.js",
+			"action": "command_not_found"
+		},
+		{
+			"file": "ping.js",
+			"action": "command"
+		},
+		{
+			"file": "reload.js",
+			"action": "reload"
+		}
+	]
+}

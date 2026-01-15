@@ -1,7 +1,7 @@
 auth_info_baileys/
 
-node_modules/
-
 plugins/*
+
+node_modules/
 
 bot_configs.json

@@ -1,3 +1,4 @@
+const vanilla = require('./vanilla.js');
 const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const P = require('pino');
@@ -14,15 +15,11 @@ let BOT_CONFIG_DEFAULT = {
 
 let BOT_CONFIG = BOT_CONFIG_DEFAULT;
 
-let plugins = {
-    "installed": [
+let plugins = { "installed": [] };
 
-    ]
-};
+let commands = {};
 
-let commands = {
-
-};
+let base_actions = {};
 
 async function execute_file(fp, sock, from, msg, m, cmd, func, printwarn) {
     try {
@@ -84,27 +81,7 @@ async function safeRun(fn, sock, from, msg, cmdName = "command") {
             await sock.sendMessage(from, {text: `Error executing command \`\`\`${cmdName}\`\`\`:\n\`\`\`${err.message || err}\`\`\``})
         } catch (_) {}
     }
-}
 
-async function loadJson(filepath, fallback = {}) {
-    try {
-        const data = await fsp.readFile(filepath, 'utf-8')
-        return JSON.parse(data);
-    } catch (error) {
-        if (error.code === "ENOENT") {
-            try {
-                const json = JSON.stringify(fallback, null, 2);
-                await fsp.writeFile(filepath, json, {encoding: 'utf-8', flag: 'w'});
-                return fallback;
-            } catch (writeError) {
-                console.error(`Failed to write file ${filepath}: ${writeError}`)
-                throw writeError;
-            }
-        } else {
-            console.error("Error processing JSON:", error)
-            throw error;
-        }
-    }
 }
 
 async function loadPluginMeta() {
@@ -118,8 +95,22 @@ async function loadPluginMeta() {
         .filter(dirent => dirent.isDirectory())
         .map(dirent => dirent.name);
     } catch (err) {
+        if (err.code === "ENOENT") {
+        	console.log(`${BOT_CONFIG.plugin_path} does not exist. Creating folder.`);
+    	    try {
+        		await fsp.mkdir(BOT_CONFIG.plugin_path, { recursive: true });
+       	        const entries = await fsp.readdir(BOT_CONFIG.plugin_path, { withFileTypes: true });
+		        directories = entries
+		        .filter(dirent => dirent.isDirectory())
+		        .map(dirent => dirent.name);
+	        } catch (err) {
+	        	console.log("Error making folder.");
+	        	throw err;
+	        }
+        } else {
         console.error(`Error reading directory: ${err}`);
         throw err; 
+        }
     }
 
     await Promise.all(directories.map(async (plugin) => { 
@@ -148,7 +139,7 @@ async function loadPluginMeta() {
                                 file: file,
                                 plugin: content.title,
                                 plugin_folder: plugin,
-                                fullPath: path.resolve(BOT_CONFIG.plugin_path, plugin, file)
+                               fullPath: path.resolve(BOT_CONFIG.plugin_path, plugin, file)
                             };
                         });
                     }
@@ -169,6 +160,7 @@ async function loadPluginMeta() {
     console.log(Object.keys(commands), "command(s) loaded from the", pluginsArray, "plugin(s).");
     console.log(commands);
 }
+
 
 function reloadCommands() {
     console.log("Reloading command files...");
@@ -191,7 +183,7 @@ function reloadCommands() {
 
 async function start() {
 
-    BOT_CONFIG = await loadJson("./bot_configs.json", BOT_CONFIG_DEFAULT);
+    BOT_CONFIG = await vanilla.loadJson("./bot_configs.json", BOT_CONFIG_DEFAULT);
 
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
@@ -203,7 +195,7 @@ async function start() {
         logger: P({ level: 'silent' }),
     });
 
-    await loadPluginMeta();
+   	await loadPluginMeta();
 
     sock.ev.on("creds.update", saveCreds);
 
