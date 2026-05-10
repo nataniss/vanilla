@@ -1,6 +1,8 @@
 
 const fsp = require('fs/promises');
 
+version = ["1", "0"]
+
 async function loadJson(filepath, fallback = {}) {
     try {
         const data = await fsp.readFile(filepath, 'utf-8')
@@ -23,5 +25,6 @@ async function loadJson(filepath, fallback = {}) {
 }
 
 module.exports = {
-	loadJson
+	loadJson,
+    version
 }

@@ -7,19 +7,16 @@ const path = require('path');
 const fsp = require('fs/promises');
 
 let BOT_CONFIG_DEFAULT = {
-    "prefix": ">",
+    "prefix": "/",
     "plugin_path": "./plugins/",
-    "base_path": "./base/",
-    "base": "vanilla"
 }
 
 let BOT_CONFIG = BOT_CONFIG_DEFAULT;
-
 let plugins = { "installed": [] };
-
 let commands = {};
 
-let base_actions = {};
+const vanilla_arguments = process.argv.slice(2);
+
 
 async function execute_file(fp, sock, from, msg, m, cmd, func, printwarn) {
     try {
@@ -30,7 +27,7 @@ async function execute_file(fp, sock, from, msg, m, cmd, func, printwarn) {
                     await safeRun(() => pluginModule.post(sock, from, msg), sock, from, m, cmd);
                 } else {
                     if (printwarn === true || printwarn === undefined) {
-                        console.warn(`Plugin at ${fp} is missing a 'post' function.`);
+                        if (vanilla_arguments.includes("-vcpfm")) console.warn(` :: Plugin at ${fp} is missing a 'post' function.`);
                     }
                 }
                 break;
@@ -40,43 +37,23 @@ async function execute_file(fp, sock, from, msg, m, cmd, func, printwarn) {
                     await safeRun(() => pluginModule.run(sock, from, msg), sock, from, m, cmd);
                 } else {
                     if (printwarn === true || printwarn === undefined) {
-                        console.warn(`Plugin at ${fp} is missing a 'run' function.`);
+                        console.warn(` :: Plugin at ${fp} is missing a 'run' function.\n :: Did you forget to include "module.exports = { run }"?`);
                     }
                 }
                 break;
         }
     } catch (err) {
-        console.error(`Failed to load or execute file at ${fp}:`, err);
+        console.error(` :: Failed to load or execute file at ${fp}:`, err);
         await sock.sendMessage(from, { text: `Error executing command \`\`\`${cmd}\`\`\`.\n\n\`\`\`${err.message}\`\`\``}, {quoted: msg });
     }
     return;
 }
 
-async function changeBase(fp, newbase) {
-    try {
-        const json = await fsp.readFile(fp, 'utf-8');
-        
-        const data = JSON.parse(json);
-        data.base = newbase;
-        const new_data = JSON.stringify(data, null, 2);
-
-        BOT_CONFIG = data;
-        await fsp.writeFile(fp, new_data, { encoding: 'utf-8' });
-
-        console.log(`Successfully changed base to ${newbase}.`);
-        return true;
-    } catch (err) {
-        console.error("Error changing base:", err.message);
-        throw err;
-    }
-}
-
-// safe run, in case something goes wrong
 async function safeRun(fn, sock, from, msg, cmdName = "command") {
     try {
         await fn();
     } catch (err) {
-        console.error(`Error executing command ${cmdName}:`, err);
+        console.error(` :: Error executing command ${cmdName}:`, err);
         try {
             await sock.sendMessage(from, {text: `Error executing command \`\`\`${cmdName}\`\`\`:\n\`\`\`${err.message || err}\`\`\``})
         } catch (_) {}
@@ -96,7 +73,7 @@ async function loadPluginMeta() {
         .map(dirent => dirent.name);
     } catch (err) {
         if (err.code === "ENOENT") {
-        	console.log(`${BOT_CONFIG.plugin_path} does not exist. Creating folder.`);
+        	console.log(` :: ${BOT_CONFIG.plugin_path} does not exist. Creating folder.`);
     	    try {
         		await fsp.mkdir(BOT_CONFIG.plugin_path, { recursive: true });
        	        const entries = await fsp.readdir(BOT_CONFIG.plugin_path, { withFileTypes: true });
@@ -104,7 +81,7 @@ async function loadPluginMeta() {
 		        .filter(dirent => dirent.isDirectory())
 		        .map(dirent => dirent.name);
 	        } catch (err) {
-	        	console.log("Error making folder.");
+	        	console.log(" :: Error making folder.");
 	        	throw err;
 	        }
         } else {
@@ -113,8 +90,10 @@ async function loadPluginMeta() {
         }
     }
 
+    console.log("\n :: Loading plugins...")
+
     await Promise.all(directories.map(async (plugin) => { 
-        console.log(`Loading plugin metadata for: ${plugin}`);
+        if (vanilla_arguments.includes("-vpl")) console.log(` :: Loading plugin metadata for: ${plugin}`);
         
         try {
             const manifestPath = path.join(BOT_CONFIG.plugin_path, plugin, "manifest.json");
@@ -132,7 +111,7 @@ async function loadPluginMeta() {
                             const commandName = alias.toLowerCase();
 
                             if (commands[commandName]) {
-                                console.warn(`Command conflict detected! Alias "${commandName}" from plugin "${content.title}" is already used by plugin "${commands[commandName].plugin}". The existing one will be overwritten.`);
+                                console.warn(` :: WARNING: Alias "${commandName}" from plugin "${content.title}" is already used by plugin "${commands[commandName].plugin}".\n :: The existing one will be overwritten.`);
                             }
 
                             commands[commandName] = {
@@ -146,24 +125,22 @@ async function loadPluginMeta() {
                 });
             }
 
-            console.log(`Successfully loaded manifest for ${content.title}.`);
+            if (vanilla_arguments.includes("-vpl")) console.log(` :: Successfully loaded manifest for ${content.title}.`);
 
         } catch (err) {
-            console.error(`Got an error trying to read or process manifest of ${plugin}: ${err.message}`);
+            console.error(` :: Got an error trying to read or process manifest of ${plugin}: ${err.message}`);
         }
     }));
     
-    console.log("Done loading plugins and commands.");
     pluginsArray = plugins.installed.filter(function(item, pos) {
         return plugins.installed.indexOf(item) == pos;
     })
-    console.log(Object.keys(commands), "command(s) loaded from the", pluginsArray, "plugin(s).");
-    console.log(commands);
+    console.log(" :: Done.", Object.keys(commands).length, "command(s) loaded from ", pluginsArray.length, "plugin(s).");
 }
 
 
 function reloadCommands() {
-    console.log("Reloading command files...");
+    console.log(" :: Reloading command files...");
     
     const pathsToClear = Object.values(commands).map(meta => meta.fullPath).filter(p => p);
 
@@ -176,12 +153,14 @@ function reloadCommands() {
         }
     });
     
-    console.log(`Reloaded ${clearedCount} command file(s).`);
+    console.log(` :: Reloaded ${clearedCount} command file(s).`);
 }
 
 
 
 async function start() {
+
+    console.log(` :: VanillaBot v${vanilla.version.join(".")}`)
 
     BOT_CONFIG = await vanilla.loadJson("./bot_configs.json", BOT_CONFIG_DEFAULT);
 
@@ -209,13 +188,16 @@ async function start() {
             if (shouldReconnect) {
                 start();
             } else {
-                console.log('Connection closed. You are logged out.');
+                console.log('\n :: Connection closed. You are logged out.\n :: Disconnecting... (You\'ll need to login again)');
+                await fsp.rm(__dirname + "/auth_info_baileys/", { recursive: true, force: true });
+                start();
             }
         } else if (connection === 'open') {
-            console.log('Connection opened successfully!');
+            console.log('\n :: Connection opened successfully!');
         }
 
         if (qr) {
+            console.log("\n")
             console.log(await qrcode.toString(qr, {type:'terminal', small: true}))
         }
 
@@ -253,12 +235,10 @@ async function start() {
         const commandMeta = commands[cmd];
 
         switch (cmd) {
-            // TODO: I should really remove these hardcoded cases...
             case ("reload"): {
                 const fp = path.resolve(
-                    BOT_CONFIG.base_path,
-                    BOT_CONFIG.base,
-                    "reload.js"
+                    "./src/",
+                    "command_not_found.js"
                 );
                 await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
 
@@ -270,24 +250,10 @@ async function start() {
             }
             case ("ping"): {
                 const fp = path.resolve(
-                    BOT_CONFIG.base_path,
-                    BOT_CONFIG.base,
-                    "ping.js"
+                    "./src/",
+                    "command_not_found.js"
                 );
                 await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
-                return;
-            }
-            case ("base"): {
-                if (args.length === 0) {
-                await sock.sendMessage(from, { text: `Current base is ${BOT_CONFIG.base}.`}, {quoted: msg });
-            } else {
-                if (args[0] === "switch") {
-                    await safeRun(() => changeBase("./bot_configs.json", args[1]), sock, from, m, cmd);
-                    await loadPluginMeta(); 
-                    reloadCommands();
-                    await sock.sendMessage(from, { text: `Base switched to *${BOT_CONFIG.base}*. Plugins reloaded.`}, {quoted: msg });
-                }
-            }
                 return;
             }
 
@@ -300,14 +266,13 @@ async function start() {
                         commandMeta.file
                     );
 
-                    console.log(`Attempting to run command from: ${fp}`);
+                    if (vanilla_arguments.includes("-vpe")) console.log(` :: Attempting to run command from: ${fp}`);
                     await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
-                    await safeRun(() => execute_file(fp, sock, from, msg, m, cmd, 1, false), sock, from, m, cmd); // run post, if not existent, fail silently
+                    await safeRun(() => execute_file(fp, sock, from, msg, m, cmd, 1, false), sock, from, m, cmd);
                     return;
                 } else {
                     const fp = path.resolve(
-                        BOT_CONFIG.base_path,
-                        BOT_CONFIG.base,
+                        "./src/",
                         "command_not_found.js"
                     );
                     await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
