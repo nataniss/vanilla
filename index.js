@@ -12,22 +12,24 @@ const { stdin: input, stdout: output } = require('node:process');
 const rl = readline.createInterface({ input, output });
 
 const GROUP_CACHE = new Map();
-const CACHE_DURATION = 1000 * 60 * 10;
 const COOLDOWNS = new Map();
 
 let BOT_CONFIG_DEFAULT = {
     "prefix": "/",
     "plugin_path": "./plugins/",
-    "cooldown": 0,
+    "source_path": "./src/",
+    "cooldown": 5000,
     "global": false,
     "owners": [],
-    "allowed_jids": []
+    "allowed_jids": [],
+    "group_cache_duration": 1000 * 60 * 10,
 }
 
 
 let BOT_CONFIG = BOT_CONFIG_DEFAULT;
 let plugins = { "installed": [] };
 let commands = {};
+let source_ignore;
 
 const vanilla_arguments = process.argv.slice(2);
 
@@ -189,6 +191,18 @@ async function start() {
 
     BOT_CONFIG = await vanilla.loadJson("./bot_configs.json", BOT_CONFIG_DEFAULT);
 
+    try {
+        const src_ignore_data = fs.readFileSync(path.resolve(BOT_CONFIG.source_path + "src_ignore.json"), 'utf8');
+        source_ignore = JSON.parse(src_ignore_data)
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            console.error(':: Error: src_ignore.js not found at current source folder.');
+        } else {
+            console.error(' :: Error reading src_ignore.js inside source folder:', error.message);
+        }
+        source_ignore = []
+    }
+
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
     const { version } = await fetchLatestBaileysVersion();
@@ -244,7 +258,7 @@ async function start() {
         const cachedData = GROUP_CACHE.get(from);
 
         if (isGroup) {
-            if (cachedData && (now - cachedData.timestamp) < CACHE_DURATION) {
+            if (cachedData && (now - cachedData.timestamp) < BOT_CONFIG.group_cache_duration) {
 		        participants = cachedData.participants;
 		    } else {
                 try {
@@ -314,53 +328,39 @@ async function start() {
 
         const commandMeta = commands[cmd];
 
-        switch (cmd) {
-            case ("reload"): {
+        if (commandMeta) {
+
+            const fp = path.resolve(
+                BOT_CONFIG.plugin_path,
+                commandMeta.plugin_folder,
+                commandMeta.file
+            );
+
+            if (vanilla_arguments.includes("v:pe")) console.log(` :: Attempting to run command from: ${fp}`);
+            await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
+            await safeRun(() => execute_file(fp, sock, from, msg, m, cmd, 1, false), sock, from, m, cmd);
+            return;
+        } else {
+            if (fs.existsSync(path.resolve(BOT_CONFIG.source_path, cmd + ".js"))) {
+
+                if (source_ignore.includes(cmd)) return;
+
                 const fp = path.resolve(
-                    "./src/",
+                    BOT_CONFIG.source_path,
+                    cmd + ".js"
+                );
+                
+                await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
+                return;
+            } else {
+                const fp = path.resolve(
+                    BOT_CONFIG.source_path,
                     "command_not_found.js"
                 );
                 await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
-
-                reloadCommands();
-                await loadPluginMeta();
-
-                await safeRun(() => execute_file(fp, sock, from, msg, m, cmd, 1), sock, from, m, cmd);
                 return;
-            }
-            case ("ping"): {
-                const fp = path.resolve(
-                    "./src/",
-                    "command_not_found.js"
-                );
-                await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
-                return;
-            }
-
-            default: {
-                if (commandMeta) {
-
-                    const fp = path.resolve(
-                        BOT_CONFIG.plugin_path,
-                        commandMeta.plugin_folder,
-                        commandMeta.file
-                    );
-
-                    if (vanilla_arguments.includes("v:pe")) console.log(` :: Attempting to run command from: ${fp}`);
-                    await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
-                    await safeRun(() => execute_file(fp, sock, from, msg, m, cmd, 1, false), sock, from, m, cmd);
-                    return;
-                } else {
-                    const fp = path.resolve(
-                        "./src/",
-                        "command_not_found.js"
-                    );
-                    await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
-                    return;
-                }
             }
         }
-
     });
 }
 
