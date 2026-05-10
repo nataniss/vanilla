@@ -6,17 +6,21 @@ const P = require('pino');
 const qrcode = require('qrcode');
 const path = require('path');
 const fsp = require('fs/promises');
-const readline = require('node:readline');
+const readline = require('node:readline/promises'); // Note o /promises
+const { stdin: input, stdout: output } = require('node:process');
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout,
-});
+const rl = readline.createInterface({ input, output });
+
+const GROUP_CACHE = new Map();
+const CACHE_DURATION = 1000 * 60 * 10;
+const COOLDOWNS = new Map();
 
 let BOT_CONFIG_DEFAULT = {
     "prefix": "/",
     "plugin_path": "./plugins/",
+    "cooldown": 0,
     "global": false,
+    "owners": [],
     "allowed_jids": []
 }
 
@@ -170,17 +174,17 @@ function reloadCommands() {
 
 async function start() {
 
-    // fix this!
     console.log(` :: VanillaBot v${vanilla.version.join(".")}`)
+
     if (!fs.existsSync("./bot_configs.json")) { 
-        console.log(" :: Heya! Your bot configuration file is not set up yet. You'll need to configurate some stuff before actually starting the bot; Follow the steps on screen.")      
+        console.log(" :: Heya! Your bot configuration file is not set up yet. You'll need to configurate some stuff before actually starting the bot; Follow the steps on screen.")
 
-        await rl.question(`\n :: VanillaBot's command execution is by default global, meaning that every person, on every group or any direct message, can execute commands.\n :: However, some bots may need to execute exclusively in select groups or/and direct messages.\n :: VanillaBot can do this automatically. By running /bot allow or /bot deny, any group or direct message these were executed on will get removed or added to a whitelist.\n :: Then, only chats which are in the whitelist can execute commands.\n :: (Note: if you change your mind later, you can modify "bot_configs.json" and set "GLOBAL" as false/true. Aditionally, only the owner or owners can execute /bot <action>)\n :: If you want to allow exclusive command execution, type Y. Otherwise, type N. >>>`, response_bot_whitelist => {
-            BOT_CONFIG.global = (response_bot_whitelist === "y") || (response_bot_whitelist === "Y")
-            rl.close();
-        });
+        response_bot_whitelist = await rl.question(`\n :: VanillaBot's command execution is by default global, meaning that every person, on every group or any direct message, can execute commands.\n :: However, some bots may need to execute exclusively in select groups or/and direct messages.\n :: VanillaBot can do this automatically. By running /bot allow or /bot deny, any group or direct message these were executed on will get removed or added to a whitelist.\n :: Then, only chats which are in the whitelist can execute commands.\n :: (Note: if you change your mind later, you can modify "bot_configs.json" and set "GLOBAL" as false/true. Aditionally, only the owner (or owners) set in the bot configuration file can execute /bot allow/deny.)\n :: If you want to allow exclusive command execution, type Y. Otherwise, type N. >>>`)
 
-        console.log("\n\n :: You're set up now; Starting bot...\n")
+        BOT_CONFIG_DEFAULT.global = !((response_bot_whitelist === "y") || (response_bot_whitelist === "Y"))
+        rl.close();
+
+        console.log("\n :: You're set up now; Starting bot...")
     }
 
     BOT_CONFIG = await vanilla.loadJson("./bot_configs.json", BOT_CONFIG_DEFAULT);
@@ -231,6 +235,43 @@ async function start() {
 
         const from = m.key?.remoteJid || m.key?.participant;
         const fromAlt = m.key.participantAlt;
+        const isGroup = from.endsWith('@g.us');
+
+        let senderNumber = "";
+        let participants = [];
+        const lid = m.key.participant || m.key.remoteJid;
+        const now = Date.now();
+        const cachedData = GROUP_CACHE.get(from);
+
+        if (isGroup) {
+            if (cachedData && (now - cachedData.timestamp) < CACHE_DURATION) {
+		        participants = cachedData.participants;
+		    } else {
+                try {
+                    const metadata = await sock.groupMetadata(from);
+                    participants = metadata.participants;
+                    GROUP_CACHE.set(from, { 
+                        participants: participants, 
+                        timestamp: now 
+                    });
+                } catch (e) {
+                    console.error(" :: Error checking group metadata:", e);
+                    if (cachedData) {
+                        participants = cachedData.participants;
+                    } else {
+                        return; 
+                    }
+                }
+		    }
+
+            const match = participants.find(p => p.id === lid);
+		    if (match && match.phoneNumber) {
+		        senderNumber = match.phoneNumber.split('@')[0];
+		    }
+        } else {
+            // lid
+            senderNumber = "-1"
+        }
 
         const contactname = m.pushName || undefined;
         const type = Object.keys(m.message || {})[0];
@@ -241,17 +282,35 @@ async function start() {
         || "";
         const timestamp = m.messageTimestamp?.low || m.messageTimestamp || 0;
         
-        const msg = { key: m.key || {}, message: m.message, text, from, fromAlt, contactname, fromMe, type, timestamp };
-        // build a simpler message
+        const msg = { key: m.key || {}, message: m.message, text, from, fromAlt, contactname, fromMe, type, timestamp, participants, senderNumber };
 
-        // command execution
         let [raw, ...args] = text.slice(BOT_CONFIG.prefix.length).trim().split(" ");
 
         if (!text.startsWith(BOT_CONFIG.prefix)) return;
 
+        
         let cmd = raw.toLowerCase();
         msg.args = args;
         msg.cmd = cmd;
+        
+        if (!BOT_CONFIG.allowed_jids.includes(from) && BOT_CONFIG.global === false) {
+            console.log(` :: Command executed on ${from} (${cmd}), however it's not on the whitelist. Ignoring.`)
+            return;
+        }
+
+        const cooldown_id = senderNumber;
+
+        if (COOLDOWNS.has(cooldown_id)) {
+			await sock.sendMessage(from, {text: "Please wait " + (BOT_CONFIG.cooldown / 1000) + " seconds before running a command again." }, { quoted: msg } )
+		    return;
+		}
+
+        COOLDOWNS.set(cooldown_id, true);
+		
+		setTimeout(() => {
+		    COOLDOWNS.delete(cooldown_id);
+		}, BOT_CONFIG.cooldown);
+
 
         const commandMeta = commands[cmd];
 

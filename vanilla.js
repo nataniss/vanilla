@@ -1,7 +1,7 @@
 
 const fsp = require('fs/promises');
 
-version = ["1", "0"]
+version = ["1", "0 (AppleCake)"]
 
 async function loadJson(filepath, fallback = {}) {
     try {
@@ -22,6 +22,16 @@ async function loadJson(filepath, fallback = {}) {
             throw error;
         }
     }
+}
+
+async function updateBotConfiguration() {
+    try {
+        await fsp.writeFile("./bot_configs.json", JSON.stringify(BOT_CONFIG, null, 2));
+    } catch (err) {
+        console.error(`Failed to write file ${filepath}: ${writeError}`)
+        throw err;
+    }
+
 }
 
 module.exports = {
