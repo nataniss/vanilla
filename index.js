@@ -1,3 +1,4 @@
+const fs = require('fs');
 const vanilla = require('./vanilla.js');
 const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, DisconnectReason } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
@@ -5,11 +6,20 @@ const P = require('pino');
 const qrcode = require('qrcode');
 const path = require('path');
 const fsp = require('fs/promises');
+const readline = require('node:readline');
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+});
 
 let BOT_CONFIG_DEFAULT = {
     "prefix": "/",
     "plugin_path": "./plugins/",
+    "global": false,
+    "allowed_jids": []
 }
+
 
 let BOT_CONFIG = BOT_CONFIG_DEFAULT;
 let plugins = { "installed": [] };
@@ -27,7 +37,7 @@ async function execute_file(fp, sock, from, msg, m, cmd, func, printwarn) {
                     await safeRun(() => pluginModule.post(sock, from, msg), sock, from, m, cmd);
                 } else {
                     if (printwarn === true || printwarn === undefined) {
-                        if (vanilla_arguments.includes("-vcpfm")) console.warn(` :: Plugin at ${fp} is missing a 'post' function.`);
+                        if (vanilla_arguments.includes("v:cpfm")) console.warn(` :: Plugin at ${fp} is missing a 'post' function.`);
                     }
                 }
                 break;
@@ -93,7 +103,7 @@ async function loadPluginMeta() {
     console.log("\n :: Loading plugins...")
 
     await Promise.all(directories.map(async (plugin) => { 
-        if (vanilla_arguments.includes("-vpl")) console.log(` :: Loading plugin metadata for: ${plugin}`);
+        if (vanilla_arguments.includes("v:pl")) console.log(` :: Loading plugin metadata for: ${plugin}`);
         
         try {
             const manifestPath = path.join(BOT_CONFIG.plugin_path, plugin, "manifest.json");
@@ -125,7 +135,7 @@ async function loadPluginMeta() {
                 });
             }
 
-            if (vanilla_arguments.includes("-vpl")) console.log(` :: Successfully loaded manifest for ${content.title}.`);
+            if (vanilla_arguments.includes("v:pl")) console.log(` :: Successfully loaded manifest for ${content.title || plugin + " ( folder name )"}.`);
 
         } catch (err) {
             console.error(` :: Got an error trying to read or process manifest of ${plugin}: ${err.message}`);
@@ -135,7 +145,7 @@ async function loadPluginMeta() {
     pluginsArray = plugins.installed.filter(function(item, pos) {
         return plugins.installed.indexOf(item) == pos;
     })
-    console.log(" :: Done.", Object.keys(commands).length, "command(s) loaded from ", pluginsArray.length, "plugin(s).");
+    console.log(" :: Done.", Object.keys(commands).length, "command(s) loaded from", pluginsArray.length, "plugin(s).");
 }
 
 
@@ -160,7 +170,18 @@ function reloadCommands() {
 
 async function start() {
 
+    // fix this!
     console.log(` :: VanillaBot v${vanilla.version.join(".")}`)
+    if (!fs.existsSync("./bot_configs.json")) { 
+        console.log(" :: Heya! Your bot configuration file is not set up yet. You'll need to configurate some stuff before actually starting the bot; Follow the steps on screen.")      
+
+        await rl.question(`\n :: VanillaBot's command execution is by default global, meaning that every person, on every group or any direct message, can execute commands.\n :: However, some bots may need to execute exclusively in select groups or/and direct messages.\n :: VanillaBot can do this automatically. By running /bot allow or /bot deny, any group or direct message these were executed on will get removed or added to a whitelist.\n :: Then, only chats which are in the whitelist can execute commands.\n :: (Note: if you change your mind later, you can modify "bot_configs.json" and set "GLOBAL" as false/true. Aditionally, only the owner or owners can execute /bot <action>)\n :: If you want to allow exclusive command execution, type Y. Otherwise, type N. >>>`, response_bot_whitelist => {
+            BOT_CONFIG.global = (response_bot_whitelist === "y") || (response_bot_whitelist === "Y")
+            rl.close();
+        });
+
+        console.log("\n\n :: You're set up now; Starting bot...\n")
+    }
 
     BOT_CONFIG = await vanilla.loadJson("./bot_configs.json", BOT_CONFIG_DEFAULT);
 
@@ -266,7 +287,7 @@ async function start() {
                         commandMeta.file
                     );
 
-                    if (vanilla_arguments.includes("-vpe")) console.log(` :: Attempting to run command from: ${fp}`);
+                    if (vanilla_arguments.includes("v:pe")) console.log(` :: Attempting to run command from: ${fp}`);
                     await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
                     await safeRun(() => execute_file(fp, sock, from, msg, m, cmd, 1, false), sock, from, m, cmd);
                     return;
