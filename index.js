@@ -307,7 +307,7 @@ async function start() {
         if (BOT_CONFIG.owners.includes(senderNumber) && text.startsWith(BOT_CONFIG.prefix)) {
             if (cmd == "bot") {
                 if (args[0] == "allow") {
-                    let metadata = await sock.groupMetadata(groupJid);
+                    let metadata = await sock.groupMetadata(from);
     
                     let groupName = metadata.subject; 
                     if (BOT_CONFIG.allowed_jids.includes(from)) {
