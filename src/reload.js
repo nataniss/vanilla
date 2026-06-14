@@ -1,13 +1,28 @@
-function run(sock, from, msg) {
-    sock.sendMessage(from, { text: `Reloading plugins and commands...`}, { quoted: msg });
-}
+const index = require("../index.js")
 
-function post(sock, from, msg) {
-    sock.sendMessage(from, { text: `All commands reloaded.`}, { quoted: msg });
+async function run(sock, from, msg) {
+    await sock.sendMessage(
+    from,
+        {
+            react: {
+                text: '🔄',
+                key: msg.key
+            }
+        }
+    );
+    index.reloadCommands()
+    await index.loadPluginMeta()
+    await sock.sendMessage(
+    from,
+        {
+            react: {
+                text: '✅',
+                key: msg.key
+            }
+        }
+    );
 }
-
 
 module.exports = {
-    run: run,
-    post: post
+    run: run
 };

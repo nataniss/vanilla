@@ -304,6 +304,51 @@ async function start() {
         msg.args = args;
         msg.cmd = cmd;
 
+        if (BOT_CONFIG.owners.includes(senderNumber) && text.startsWith(BOT_CONFIG.prefix)) {
+            if (cmd == "bot") {
+                if (args[0] == "allow") {
+                    let metadata = await sock.groupMetadata(groupJid);
+    
+                    let groupName = metadata.subject; 
+                    if (BOT_CONFIG.allowed_jids.includes(from)) {
+                        await sock.sendMessage(from, {text: `This group (${groupName}) is already in the whitelist.`})
+                    } else {
+                        console.log(` :: ${groupName} can now run commands (allowed by ${senderNumber})`)
+                        BOT_CONFIG.allowed_jids.push(from)
+                        vanilla.updateBotConfiguration(BOT_CONFIG)
+                        await sock.sendMessage(
+                        from,
+                            {
+                                react: {
+                                    text: '✅',
+                                    key: msg.key
+                                }
+                            }
+                        );
+                    }
+                } else if (args[0] == "ignore") {
+                    if (BOT_CONFIG.allowed_jids.includes(from)) {
+                        console.log(` :: ${groupName} can not run commands anymore (ignored by ${senderNumber})`)
+                        BOT_CONFIG.allowed_jids = BOT_CONFIG.allowed_jids.filter(jid => jid !== from);
+                        vanilla.updateBotConfiguration(BOT_CONFIG)
+                        await sock.sendMessage(
+                        from,
+                            {
+                                react: {
+                                    text: '✅',
+                                    key: msg.key
+                                }
+                            }
+                        );
+                    } else {
+                        await sock.sendMessage(from, {text:`This group (${groupName}) is already not found in the whitelist.`})
+                    }
+                }
+
+                return;
+            }
+        }
+
         if (fs.existsSync(path.resolve(BOT_CONFIG.source_path, "on_raw_message.js"))) {
             await safeRun(() => execute_file(path.resolve(BOT_CONFIG.source_path, "on_raw_message.js"), sock, from, msg, m, cmd, 0, false), sock, from, m, cmd);
         }
@@ -375,3 +420,8 @@ async function start() {
 }
 
 start()
+
+module.exports = {
+    reloadCommands,
+    loadPluginMeta
+}

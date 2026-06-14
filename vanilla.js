@@ -20,6 +20,11 @@ function code(s) {
     return `\`\`\`${s}\`\`\``
 }
 
+function block_quote(s) {
+    return `> ${s}`
+}
+
+
 async function loadJson(filepath, fallback = {}) {
     try {
         const data = await fsp.readFile(filepath, 'utf-8')
@@ -41,7 +46,7 @@ async function loadJson(filepath, fallback = {}) {
     }
 }
 
-async function updateBotConfiguration() {
+async function updateBotConfiguration(BOT_CONFIG) {
     try {
         await fsp.writeFile("./bot_configs.json", JSON.stringify(BOT_CONFIG, null, 2));
     } catch (err) {
@@ -57,5 +62,7 @@ module.exports = {
     bold,
     italic,
     strikethrough,
-    code
+    code,
+    block_quote,
+    updateBotConfiguration
 }
