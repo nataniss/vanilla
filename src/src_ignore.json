@@ -1,3 +1,6 @@
 [
-    "command_not_found.js"
+    "command_not_found.js",
+    "on_cooldown.js",
+    "on_message.js",
+    "on_raw_message.js"
 ]

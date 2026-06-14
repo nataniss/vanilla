@@ -1,7 +1,24 @@
 
 const fsp = require('fs/promises');
 
-version = ["1", "0 (AppleCake)"]
+version = ["1", "0"]
+sdk = "Applecake"
+
+function bold(s) {
+    return `*${s}*`
+}
+
+function italic(s) {
+    return `_${s}_`
+}
+
+function strikethrough(s) {
+    return `~${s}~`
+}
+
+function code(s) {
+    return `\`\`\`${s}\`\`\``
+}
 
 async function loadJson(filepath, fallback = {}) {
     try {
@@ -31,10 +48,14 @@ async function updateBotConfiguration() {
         console.error(`Failed to write file ${filepath}: ${writeError}`)
         throw err;
     }
-
 }
 
 module.exports = {
 	loadJson,
-    version
+    version,
+    sdk,
+    bold,
+    italic,
+    strikethrough,
+    code
 }

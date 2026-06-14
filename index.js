@@ -6,7 +6,7 @@ const P = require('pino');
 const qrcode = require('qrcode');
 const path = require('path');
 const fsp = require('fs/promises');
-const readline = require('node:readline/promises'); // Note o /promises
+const readline = require('node:readline/promises');
 const { stdin: input, stdout: output } = require('node:process');
 
 const rl = readline.createInterface({ input, output });
@@ -43,7 +43,7 @@ async function execute_file(fp, sock, from, msg, m, cmd, func, printwarn) {
                     await safeRun(() => pluginModule.post(sock, from, msg), sock, from, m, cmd);
                 } else {
                     if (printwarn === true || printwarn === undefined) {
-                        if (vanilla_arguments.includes("v:cpfm")) console.warn(` :: Plugin at ${fp} is missing a 'post' function.`);
+                        if (vanilla_arguments.includes("PRINT_MISSING_POST_FUNCTION")) console.warn(` :: Plugin at ${fp} is missing a 'post' function.`);
                     }
                 }
                 break;
@@ -109,7 +109,7 @@ async function loadPluginMeta() {
     console.log("\n :: Loading plugins...")
 
     await Promise.all(directories.map(async (plugin) => { 
-        if (vanilla_arguments.includes("v:pl")) console.log(` :: Loading plugin metadata for: ${plugin}`);
+        if (vanilla_arguments.includes("PRINT_MANIFEST_LOGS")) console.log(` :: Loading plugin metadata for: ${plugin}`);
         
         try {
             const manifestPath = path.join(BOT_CONFIG.plugin_path, plugin, "manifest.json");
@@ -141,7 +141,7 @@ async function loadPluginMeta() {
                 });
             }
 
-            if (vanilla_arguments.includes("v:pl")) console.log(` :: Successfully loaded manifest for ${content.title || plugin + " ( folder name )"}.`);
+            if (vanilla_arguments.includes("PRINT_MANIFEST_LOGS")) console.log(` :: Successfully loaded manifest for ${content.title || plugin + " ( folder name )"}.`);
 
         } catch (err) {
             console.error(` :: Got an error trying to read or process manifest of ${plugin}: ${err.message}`);
@@ -176,14 +176,14 @@ function reloadCommands() {
 
 async function start() {
 
-    console.log(` :: VanillaBot v${vanilla.version.join(".")}`)
+    console.log(` :: VanillaBot v${vanilla.version.join(".")} ${vanilla.sdk}`)
 
     if (!fs.existsSync("./bot_configs.json")) { 
-        console.log(" :: Heya! Your bot configuration file is not set up yet. You'll need to configurate some stuff before actually starting the bot; Follow the steps on screen.")
+        console.log(" :: Your bot configuration file is not set up yet. Follow the steps on screen to continue.")
 
-        response_bot_whitelist = await rl.question(`\n :: VanillaBot's command execution is by default global, meaning that every person, on every group or any direct message, can execute commands.\n :: However, some bots may need to execute exclusively in select groups or/and direct messages.\n :: VanillaBot can do this automatically. By running /bot allow or /bot deny, any group or direct message these were executed on will get removed or added to a whitelist.\n :: Then, only chats which are in the whitelist can execute commands.\n :: (Note: if you change your mind later, you can modify "bot_configs.json" and set "GLOBAL" as false/true. Aditionally, only the owner (or owners) set in the bot configuration file can execute /bot allow/deny.)\n :: If you want to allow exclusive command execution, type Y. Otherwise, type N. >>>`)
+        response_bot_whitelist = await rl.question(`\n :: VanillaBot's command execution is by default global, meaning that every person, on every group or any direct message, can execute commands.\n :: Allow global command execution? (Y/N) > `)
 
-        BOT_CONFIG_DEFAULT.global = !((response_bot_whitelist === "y") || (response_bot_whitelist === "Y"))
+        BOT_CONFIG_DEFAULT.global = ((response_bot_whitelist === "y") || (response_bot_whitelist === "Y"))
         rl.close();
 
         console.log("\n :: You're set up now; Starting bot...")
@@ -300,17 +300,26 @@ async function start() {
 
         let [raw, ...args] = text.slice(BOT_CONFIG.prefix.length).trim().split(" ");
 
-        if (!text.startsWith(BOT_CONFIG.prefix)) return;
-
-        
         let cmd = raw.toLowerCase();
         msg.args = args;
         msg.cmd = cmd;
-        
-        if (!BOT_CONFIG.allowed_jids.includes(from) && BOT_CONFIG.global === false) {
+
+        if (fs.existsSync(path.resolve(BOT_CONFIG.source_path, "on_raw_message.js"))) {
+            await safeRun(() => execute_file(path.resolve(BOT_CONFIG.source_path, "on_raw_message.js"), sock, from, msg, m, cmd, 0, false), sock, from, m, cmd);
+        }
+
+        if (!BOT_CONFIG.allowed_jids.includes(from) && BOT_CONFIG.global === false && text.startsWith(BOT_CONFIG.prefix)) {
             console.log(` :: Command executed on ${from} (${cmd}), however it's not on the whitelist. Ignoring.`)
             return;
         }
+
+        if (fs.existsSync(path.resolve(BOT_CONFIG.source_path, "on_message.js")) && BOT_CONFIG.allowed_jids.includes(from)) {
+            await safeRun(() => execute_file(path.resolve(BOT_CONFIG.source_path, "on_message.js"), sock, from, msg, m, cmd, 0, false), sock, from, m, cmd);
+        }
+
+
+        if (!text.startsWith(BOT_CONFIG.prefix)) return;
+        
 
         const cooldown_id = senderNumber;
 
@@ -336,7 +345,7 @@ async function start() {
                 commandMeta.file
             );
 
-            if (vanilla_arguments.includes("v:pe")) console.log(` :: Attempting to run command from: ${fp}`);
+            if (vanilla_arguments.includes("PRINT_COMMAND_EXECUTION")) console.log(` :: Attempting to run command from: ${fp}`);
             await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
             await safeRun(() => execute_file(fp, sock, from, msg, m, cmd, 1, false), sock, from, m, cmd);
             return;
@@ -350,6 +359,7 @@ async function start() {
                     cmd + ".js"
                 );
                 
+                if (vanilla_arguments.includes("PRINT_COMMAND_EXECUTION")) console.log(` :: Attempting to run command from: ${path.resolve(BOT_CONFIG.source_path, cmd + ".js")}`);
                 await safeRun(() => execute_file(fp, sock, from, msg, m, cmd), sock, from, m, cmd);
                 return;
             } else {
