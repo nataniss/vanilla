@@ -60,7 +60,7 @@ async function execute_file(fp, sock, from, msg, m, cmd, func, printwarn) {
         }
     } catch (err) {
         console.error(` :: Failed to load or execute file at ${fp}:`, err);
-        await sock.sendMessage(from, { text: `Error executing command \`\`\`${cmd}\`\`\`.\n\n\`\`\`${err.message}\`\`\``}, {quoted: msg });
+        await sock.sendMessage(from, { text: `Error executing command ${vanilla.code(cmd)}.\n\n${vanilla.code(err.message || err)}`}, {quoted: msg });
     }
     return;
 }
@@ -71,7 +71,7 @@ async function safeRun(fn, sock, from, msg, cmdName = "command") {
     } catch (err) {
         console.error(` :: Error executing command ${cmdName}:`, err);
         try {
-            await sock.sendMessage(from, {text: `Error executing command \`\`\`${cmdName}\`\`\`:\n\`\`\`${err.message || err}\`\`\``})
+            await sock.sendMessage(from, {text: `Error executing command ${vanilla.code(cmd)}.\n\n${vanilla.code(err.message || err)}`}, {quoted: msg })
         } catch (_) {}
     }
 
@@ -306,12 +306,12 @@ async function start() {
 
         if (BOT_CONFIG.owners.includes(senderNumber) && text.startsWith(BOT_CONFIG.prefix)) {
             if (cmd == "bot") {
-                if (args[0] == "allow") {
-                    let metadata = await sock.groupMetadata(from);
+                let metadata = await sock.groupMetadata(from);
     
-                    let groupName = metadata.subject; 
+                let groupName = metadata.subject; 
+                if (args[0] == "allow") {
                     if (BOT_CONFIG.allowed_jids.includes(from)) {
-                        await sock.sendMessage(from, {text: `This group (${groupName}) is already in the whitelist.`})
+                        await sock.sendMessage(from, {text: `This group (${vanilla.code(groupName)}) is already in the whitelist.`})
                     } else {
                         console.log(` :: ${groupName} can now run commands (allowed by ${senderNumber})`)
                         BOT_CONFIG.allowed_jids.push(from)
@@ -341,7 +341,7 @@ async function start() {
                             }
                         );
                     } else {
-                        await sock.sendMessage(from, {text:`This group (${groupName}) is already not found in the whitelist.`})
+                        await sock.sendMessage(from, {text:`This group (${vanilla.code(groupName)}) is already not found in the whitelist.`})
                     }
                 }
 
@@ -369,7 +369,11 @@ async function start() {
         const cooldown_id = senderNumber;
 
         if (COOLDOWNS.has(cooldown_id)) {
-			await sock.sendMessage(from, {text: "Please wait " + (BOT_CONFIG.cooldown / 1000) + " seconds before running a command again." }, { quoted: msg } )
+            if (fs.existsSync(path.resolve(BOT_CONFIG.source_path, "on_cooldown.js"))) {
+                await safeRun(() => execute_file(path.resolve(BOT_CONFIG.source_path, "on_cooldown.js"), sock, from, msg, m, cmd, 0, false), sock, from, m, cmd);
+            } else {
+			    await sock.sendMessage(from, {text: "Please wait " + vanilla.code((BOT_CONFIG.cooldown / 1000)) + " seconds before running a command again." }, { quoted: msg } )
+            }
 		    return;
 		}
 
@@ -423,5 +427,7 @@ start()
 
 module.exports = {
     reloadCommands,
-    loadPluginMeta
+    loadPluginMeta,
+    BOT_CONFIG,
+    BOT_CONFIG_DEFAULT
 }
